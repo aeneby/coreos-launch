@@ -1,0 +1,59 @@
+# How much time (in seconds) to wait after starting one machine,
+# before starting the next
+grace_period: 10
+
+# A list of all machines in the cluster. Each item in this list should have an
+# associated top-level key defined below, with the same name as the item. Items
+# in this list without an associated top-level key will be ignored.
+machines:
+    - coreos_01
+    - coreos_02
+    - coreos_03
+
+# Machine name. This will be used to name the screen session which the
+# virtual machine is attached to, however it has no effect on the machine's
+# hostname or other configuration. Must match an item in the list above.
+coreos_01:
+    coreos:
+        # The user_data (or "cloud-config) file to use when launching
+        # the machine. See the CoreOS documentation for more info.
+        user_data: /path/to/user_data/coreos_01.conf
+    system:
+        # The CoreOS image to use for the machine (hda). This will
+        # probably be a copy of the image you downloaded from the
+        # CoreOS website
+        image: /path/to/images/coreos_01.img
+        # RAM to assign tot he virtual machine, in megabytes
+        memory: 1024
+        # Number of virtual CPUs to assign to the machine
+        cpus: 4
+    network:
+        # The name of the host machine's bridged interface
+        host_bridge: br0
+        # MAC address to use for the virtual machine's interface
+        mac_address: DE:AD:BE:EF:00:01
+
+coreos_02:
+    coreos:
+        user_data: /path/to/user_data/coreos_02.conf
+    system:
+        image: /path/to/images/coreos_02.img
+        memory: 1024
+        cpus: 4
+    network:
+        host_bridge: br0
+        mac_address: DE:AD:BE:EF:00:02
+
+coreos_03:
+    coreos:
+        user_data: /path/to/user_data/coreos_03.conf
+    system:
+        image: /path/to/images/coreos_03.img
+        memory: 1024
+        cpus: 4
+    network:
+        host_bridge: br0
+        mac_address: DE:AD:BE:EF:00:03
+
+
+# vim: set noai ts=4 sw=4:

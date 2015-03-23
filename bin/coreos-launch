@@ -1,0 +1,109 @@
+#!/usr/bin/python
+import os
+import pwd
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import yaml
+
+_BRCTL    = "/usr/sbin/brctl"
+_IFCONFIG = "/sbin/ifconfig"
+_IP       = "/sbin/ip"
+_QEMU     = "/usr/bin/qemu-system-x86_64"
+_SCREEN   = "/usr/bin/screen"
+_SUDO     = "/usr/bin/sudo"
+_TUNCTL   = "/usr/sbin/tunctl"
+
+def usage():
+	print "Usage: %s <config_file>" % sys.argv[0]
+
+def ifup(host_bridge):
+	username = pwd.getpwuid(os.getuid())[0]
+	tap = subprocess.check_output([_SUDO, _TUNCTL, "-b", "-u", username]).rstrip()
+
+	devnull = open("/dev/null", 'w')
+	subprocess.call([_SUDO, _TUNCTL, "-u", username, "-t", tap], \
+	                 stdout=devnull, stderr=devnull)
+	devnull.close()
+
+	subprocess.call([_SUDO, _IP, "link", "set", tap, "up"])
+	subprocess.call([_SUDO, _BRCTL, "addif", host_bridge, tap])
+
+	return tap
+
+def ifdown(host_bridge, tap):
+	devnull = open("/dev/null", 'w')
+
+	subprocess.call([_SUDO, _BRCTL, "delif", host_bridge, tap])
+	subprocess.call([_SUDO, _IFCONFIG, tap, "down"])
+	subprocess.call([_SUDO, _TUNCTL, "-d", tap], stdout=devnull, stderr=devnull)
+
+	devnull.close()
+
+def mkconfdir(user_data):
+	confdir = tempfile.mkdtemp()
+	os.makedirs("%s/openstack/latest" % confdir)
+	shutil.copy(user_data, "%s/openstack/latest/user_data" % confdir)
+
+	return confdir
+
+def launch_machine(name, config, tap):
+	config_dir = mkconfdir(config["coreos"]["user_data"])
+
+	cmd = [_SCREEN, \
+	       "-D", "-m", \
+	       "-S", "%s" % name, \
+	       "-h", "100000", \
+	       _QEMU, \
+	       "-m", "%s" % config["system"]["memory"], \
+	       "-device", "e1000,netdev=net0,mac=%s" % config["network"]["mac_address"], \
+	       "-netdev", "tap,id=net0,ifname=%s,script=no,downscript=no" % tap, \
+	       "-machine", "accel=kvm", \
+	       "-cpu", "host", \
+	       "-smp", "%s" % config["system"]["cpus"], \
+           "-fsdev", "local,id=conf,security_model=none,readonly,path=%s" % config_dir, \
+	       "-device", "virtio-9p-pci,fsdev=conf,mount_tag=config-2", \
+	       "-hda", config["system"]["image"], \
+	       "-nographic"]
+
+	subprocess.call(cmd)
+
+def main():
+	if len(sys.argv) != 2:
+		usage()
+		sys.exit(1)
+
+	fd = open(sys.argv[1], 'r')
+	config = yaml.safe_load(fd)
+	fd.close()
+
+	for machine in config["machines"]:
+		if not config.has_key(machine):
+			print "No configuration found for machine '%s', skipping..." % machine
+			continue
+
+		ret = subprocess.call([_SCREEN, "-q", "-ls", machine])
+		# FIXME: This isn't foolproof. "screen -ls" will trigger on partial matches
+		#        as well.
+		if ret > 10:
+			print "Skipping already running machine '%s'..." % machine
+			continue
+
+		print "Launching machine '%s'..." % machine
+		if os.fork() == 0:
+			tap = ifup(config[machine]["network"]["host_bridge"])
+			launch_machine(machine, config[machine], tap)
+			ifdown(config[machine]["network"]["host_bridge"], tap)
+			break
+
+		if config["grace_period"]:
+			if machine != config["machines"][-1]:
+				print "Entering %s second grace period..." % config["grace_period"]
+				time.sleep(config["grace_period"])
+
+if __name__ == "__main__":
+	main()
+
+# vim: set noai ts=4 sw=4:
